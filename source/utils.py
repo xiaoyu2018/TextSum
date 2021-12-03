@@ -3,11 +3,12 @@ from settings import *
 import json
 import pickle as pkl
 import re
+import submodels
+from torch.utils.data.dataset import Dataset
+from torch.utils.data.dataloader import DataLoader
+import torch
 
-
-
-
-
+############################### Just run for one time! ###############################
 def Preprocess(train_path=DATA_DIR+"train_dataset.csv",test_path=DATA_DIR+"test_dataset.csv"):
     '''
     清理数据、划分验证集后重新保存至新文件
@@ -101,9 +102,19 @@ def Preprocess(train_path=DATA_DIR+"train_dataset.csv",test_path=DATA_DIR+"test_
     train_data=train_data_all[:8000] #把训练集重新划分为训练子集和验证子集，保证验证集上loss最小的模型，预测测试集
     val_data=train_data_all[8000:]
 
-    _save2Json(train_data,1)
-    _save2Json(val_data,2)
-    _save2Json(test_data,3)
+    _save2Json(train_data,TRAIN_FALG)
+    _save2Json(val_data,VAL_FALG)
+    _save2Json(test_data,TEST_FALG)
+
+def CountFiles(path):
+    '''
+    计算目标文件夹json文件数目
+    '''
+    matcher = re.compile(r'[0-9]+\.json')
+    match = lambda name: bool(matcher.match(name))
+    names = os.listdir(path)
+    n_data = len(list(filter(match, names)))
+    return n_data
 
 def BuildVocabCounter(data_dir=DATA_DIR):
     '''
@@ -111,16 +122,8 @@ def BuildVocabCounter(data_dir=DATA_DIR):
     '''
     from collections import Counter
     
-
-    #计算目标文件夹json文件数目
-    def _count_data(path):
-        matcher = re.compile(r'[0-9]+\.json')
-        match = lambda name: bool(matcher.match(name))
-        names = os.listdir(path)
-        n_data = len(list(filter(match, names)))
-        return n_data
     def GetTokens(path):
-        n_data=_count_data(path)
+        n_data=CountFiles(path)
         summary_words=[]
         source_words=[]
         for i in range(n_data):
@@ -158,10 +161,118 @@ def MakeVocab(vocab_size):
         word2idx[w] = i
     for w, i in word2idx.items():
         idx2word[i] = w
-    return word2idx, idx2word
+    
+    with open(WORD_IDX_PATH,"wb") as f:
+        pkl.dump(word2idx,f)
+    with open(IDX_WORD_PATH,"wb") as f:
+        pkl.dump(idx2word,f)
+
+def GetNumOfLongestSeq():
+    '''
+    找到最长的seq长度，用于padding
+    '''
+    
+    def _findInFolders(path,length):
+        max_len=0
+        for i in range(length):
+            js_data=json.load(open(os.path.join(path,f"{i}.json"),encoding="utf-8"))
+            l_data=js_data["source"][0].split(" ")
+            l=len(l_data)
+            if(max_len<len(l_data)):
+                max_len=l
+        return max_len
+    
+    train_path=os.path.join(DATA_DIR,"new_train/")
+    val_path=os.path.join(DATA_DIR,"new_val/")
+    test_path=os.path.join(DATA_DIR,"new_test/")
+
+    train_length=CountFiles(train_path)
+    val_length=CountFiles(val_path)
+    test_length=CountFiles(test_path)
+    
+    return max(
+        _findInFolders(train_path,train_length),
+        _findInFolders(val_path,val_length),
+        _findInFolders(test_path,test_length))
+    
+
+
+############################### - - ###############################
+
+def PaddingSeq(line):
+    """填充文本序列，直接填充转换完的index列表提高效率"""
+
+    return line + [PAD_NUM] * (MAX_SEQ_LEN - len(line))
+
+def ReadJson2List(dir,i,label=False):
+    '''读取单个json文件（一个样本），并按空格分割转换成列表'''
+    
+    js_data=json.load(open(os.path.join(dir,f"{i}.json"),encoding="utf-8"))
+    if label:
+        return js_data["summary"][0].split(" ")
+    return js_data["source"][0].split(" ")
+
+# 束搜索
+def BeamSerch(device,src,model):
+    pass
+
+
+class TextDataset(Dataset):
+    def __init__(self,flag,word2id:dict):
+        self.word2id=word2id
+        self.path=DATA_DIR
+        self.flag=flag
+        if(flag==TRAIN_FALG):
+            self.path+="new_train"
+        elif(flag==VAL_FALG):
+            self.path+="new_val"
+        elif(flag==TEST_FALG):
+            self.path+="new_test"
+        else:
+            raise Exception(f"No this flag:{flag}")
+    
+    def __len__(self):
+        print(self.path)
+        return CountFiles(self.path)
+
+    def __getitem__(self, index):
+        source=ReadJson2List(self.path,index)
+        summary=ReadJson2List(self.path,index,True)
+        # 处理summary中奇怪的问题
+        summary=[i for i in summary if (i!='' and i!=' ')]
+        # print(summary)
+        enc_x=[self.word2id[word] if word in self.word2id.keys() else UNK_NUM for word in source]
+        #padding
+        enc_x=PaddingSeq(enc_x) 
+        
+        if(self.flag!=TEST_FALG):
+            dec_x=[self.word2id[word] if word in self.word2id.keys() else UNK_NUM for word in summary]
+            # decoder输入前面加上BOS、decoder的label最后加上EOS
+            y=list(dec_x);y.append(EOS_NUM)
+            dec_x.insert(0,BOS_NUM)
+            # dec_x=PaddingSeq(dec_x)
+        if(self.flag==TEST_FALG):
+            return torch.LongTensor(enc_x)
+        return torch.LongTensor(enc_x),torch.LongTensor(dec_x),torch.LongTensor(y)
 
 
 if __name__=='__main__':
     # Preprocess()
     # BuildVocabCounter()
-    print(MakeVocab(2000))
+    MakeVocab(VOCAB_SIZE)
+    
+    # with open(WORD_IDX_PATH,"rb") as f:
+    #     a=pkl.load(f)
+    # with open(IDX_WORD_PATH,"rb") as f:
+    #     b=pkl.load(f)
+    
+    # print(a)
+    # print(b)
+    # print(ReadJson2List(os.path.join(DATA_DIR,"new_test/"),0,True))
+    with open(WORD_IDX_PATH,"rb") as f:
+        w2i=pkl.load(f)
+    # print(w2i['a'])
+    a=TextDataset(TRAIN_FALG,w2i)
+    t=a.__getitem__(123)
+    
+    print(t[2])
