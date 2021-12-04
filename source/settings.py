@@ -21,10 +21,16 @@ PAD_NUM = 0
 UNK_NUM = 1
 BOS_NUM = 2
 EOS_NUM = 3
-# 词典大小(拉满就不会出现UNK)
-VOCAB_SIZE=100000
-# 最长序列长度
-MAX_SEQ_LEN=2193
+# 词典大小(拉满就不会出现UNK),注意输入至网络时要加4（还有四个特殊字符）
+VOCAB_SIZE=10000
+# 最长原文序列长度
+MAX_SOURCE_LEN=2193
+# 最长摘要序列长度
+MAX_SUMMARY_LEN=587
+
+# 限定序列长度（短于此长度做切割，长于此长度做padding）
+SOURCE_THRESHOLD=1000
+SUMMARY_THRESHOLD=588
 # 读取数据时的标志
 TRAIN_FALG=0
 VAL_FALG=1

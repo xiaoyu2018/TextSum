@@ -176,7 +176,7 @@ def GetNumOfLongestSeq():
         max_len=0
         for i in range(length):
             js_data=json.load(open(os.path.join(path,f"{i}.json"),encoding="utf-8"))
-            l_data=js_data["source"][0].split(" ")
+            l_data=js_data["summary"][0].split(" ")
             l=len(l_data)
             if(max_len<len(l_data)):
                 max_len=l
@@ -199,10 +199,14 @@ def GetNumOfLongestSeq():
 
 ############################### - - ###############################
 
-def PaddingSeq(line):
-    """填充文本序列，直接填充转换完的index列表提高效率"""
-
-    return line + [PAD_NUM] * (MAX_SEQ_LEN - len(line))
+def PaddingSeq(line,threshold):
+    """填充文本序列，直接填充转换完的index列表"""
+    p_len=len(line)
+    if(p_len>threshold):
+        if(EOS_NUM in line):
+            line[threshold-1]=EOS_NUM
+        return line[:threshold],threshold
+    return line + [PAD_NUM] * (threshold - len(line)),p_len
 
 def ReadJson2List(dir,i,label=False):
     '''读取单个json文件（一个样本），并按空格分割转换成列表'''
@@ -232,7 +236,6 @@ class TextDataset(Dataset):
             raise Exception(f"No this flag:{flag}")
     
     def __len__(self):
-        print(self.path)
         return CountFiles(self.path)
 
     def __getitem__(self, index):
@@ -243,36 +246,49 @@ class TextDataset(Dataset):
         # print(summary)
         enc_x=[self.word2id[word] if word in self.word2id.keys() else UNK_NUM for word in source]
         #padding
-        enc_x=PaddingSeq(enc_x) 
+        enc_x,enc_x_l=PaddingSeq(enc_x,SOURCE_THRESHOLD) 
         
         if(self.flag!=TEST_FALG):
             dec_x=[self.word2id[word] if word in self.word2id.keys() else UNK_NUM for word in summary]
             # decoder输入前面加上BOS、decoder的label最后加上EOS
             y=list(dec_x);y.append(EOS_NUM)
+            y,y_l=PaddingSeq(y,SUMMARY_THRESHOLD)
+
             dec_x.insert(0,BOS_NUM)
-            # dec_x=PaddingSeq(dec_x)
+            dec_x,dec_x_l=PaddingSeq(dec_x,SUMMARY_THRESHOLD)
         if(self.flag==TEST_FALG):
-            return torch.LongTensor(enc_x)
-        return torch.LongTensor(enc_x),torch.LongTensor(dec_x),torch.LongTensor(y)
+            return (torch.LongTensor(enc_x),enc_x_l)
+        # 返回值依次为：编码器输入，编码器输入有效长度，解码器输入，解码器输入有效长度，标签，标签有效长度
+        return (torch.LongTensor(enc_x),enc_x_l),(torch.LongTensor(dec_x),dec_x_l),(torch.LongTensor(y),y_l)
+
+
+# 将数据转换为成batch的Tensor，win平台有bug，多进程不能写在函数里，凑活用吧
+with open(WORD_IDX_PATH,"rb") as f:
+        w2i=pkl.load(f)
+train_iter=DataLoader(TextDataset(TRAIN_FALG,w2i),shuffle=True,batch_size=128,num_workers=8)
+val_iter=DataLoader(TextDataset(VAL_FALG,w2i),shuffle=False,batch_size=64,num_workers=4)
+test_iter=DataLoader(TextDataset(TEST_FALG,w2i),shuffle=False,batch_size=64,num_workers=4)
 
 
 if __name__=='__main__':
     # Preprocess()
     # BuildVocabCounter()
-    MakeVocab(VOCAB_SIZE)
+    # MakeVocab(VOCAB_SIZE)
     
-    # with open(WORD_IDX_PATH,"rb") as f:
-    #     a=pkl.load(f)
+    with open(WORD_IDX_PATH,"rb") as f:
+        a=pkl.load(f)
     # with open(IDX_WORD_PATH,"rb") as f:
     #     b=pkl.load(f)
     
-    # print(a)
+    print(a)
     # print(b)
     # print(ReadJson2List(os.path.join(DATA_DIR,"new_test/"),0,True))
-    with open(WORD_IDX_PATH,"rb") as f:
-        w2i=pkl.load(f)
-    # print(w2i['a'])
-    a=TextDataset(TRAIN_FALG,w2i)
-    t=a.__getitem__(123)
+    # with open(WORD_IDX_PATH,"rb") as f:
+    #     w2i=pkl.load(f)
+    # # print(w2i['a'])
+    # a=TextDataset(VAL_FALG,w2i)
+    # x=a.__getitem__(1)
     
-    print(t[2])
+    # print(x)
+    # train_iter=DataLoader(TextDataset(VAL_FALG,w2i),shuffle=True,batch_size=128,num_workers=4)
+    
