@@ -27,6 +27,19 @@
 # out = transformer_model(src, tgt)
 # print(out.shape)
 
-l=[1,2,3,4]
+# l=[1,2,3,4]
 
-print([i if i!=4 else 5 for i in l])
+# print([i if i!=4 else 5 for i in l])
+
+
+# import utils
+
+# a=["hello hello","hi world"]
+# b=["hello hello","world"]
+
+# utils.GetRouge(a,b)
+
+from datetime import datetime
+
+
+print(datetime.now())

@@ -1,12 +1,17 @@
+import time
 import os
+from torch import nn
+from torch import optim
+from torch.nn.modules.module import Module
 from settings import *
 import json
 import pickle as pkl
 import re
-import submodels
 from torch.utils.data.dataset import Dataset
 from torch.utils.data.dataloader import DataLoader
 import torch
+from rouge import Rouge
+import models
 
 ############################### Just run for one time! ###############################
 def Preprocess(train_path=DATA_DIR+"train_dataset.csv",test_path=DATA_DIR+"test_dataset.csv"):
@@ -198,30 +203,8 @@ def GetNumOfLongestSeq():
 
 
 ############################### - - ###############################
-
-def PaddingSeq(line,threshold):
-    """填充文本序列，直接填充转换完的index列表"""
-    p_len=len(line)
-    if(p_len>threshold):
-        if(EOS_NUM in line):
-            line[threshold-1]=EOS_NUM
-        return line[:threshold],threshold
-    return line + [PAD_NUM] * (threshold - len(line)),p_len
-
-def ReadJson2List(dir,i,label=False):
-    '''读取单个json文件（一个样本），并按空格分割转换成列表'''
-    
-    js_data=json.load(open(os.path.join(dir,f"{i}.json"),encoding="utf-8"))
-    if label:
-        return js_data["summary"][0].split(" ")
-    return js_data["source"][0].split(" ")
-
-# 束搜索
-def BeamSerch(device,src,model):
-    pass
-
-
 class TextDataset(Dataset):
+    '''生成TensorDataset'''
     def __init__(self,flag,word2id:dict):
         self.word2id=word2id
         self.path=DATA_DIR
@@ -261,13 +244,160 @@ class TextDataset(Dataset):
         # 返回值依次为：编码器输入，编码器输入有效长度，解码器输入，解码器输入有效长度，标签，标签有效长度
         return (torch.LongTensor(enc_x),enc_x_l),(torch.LongTensor(dec_x),dec_x_l),(torch.LongTensor(y),y_l)
 
+def PaddingSeq(line,threshold):
+    """填充文本序列，直接填充转换完的index列表"""
+    p_len=len(line)
+    if(p_len>threshold):
+        if(EOS_NUM in line):
+            line[threshold-1]=EOS_NUM
+        return line[:threshold],threshold
+    return line + [PAD_NUM] * (threshold - len(line)),p_len
 
-# 将数据转换为成batch的Tensor，win平台有bug，多进程不能写在函数里，凑活用吧
+def ReadJson2List(dir,i,label=False):
+    '''读取单个json文件（一个样本），并按空格分割转换成列表'''
+    
+    js_data=json.load(open(os.path.join(dir,f"{i}.json"),encoding="utf-8"))
+    if label:
+        return js_data["summary"][0].split(" ")
+    return js_data["source"][0].split(" ")
+
+
+def GetRouge(pred,label):
+    '''获取ROUGR-L值'''
+    rouge=Rouge()
+    rouge_score = rouge.get_scores(pred, label)
+    rouge_L_f1 = 0
+    rouge_L_p = 0
+    rouge_L_r = 0
+    for d in rouge_score:
+        rouge_L_f1 += d["rouge-l"]["f"]
+        rouge_L_p += d["rouge-l"]["p"]
+        rouge_L_r += d["rouge-l"]["r"]
+    
+    return (rouge_L_f1 / len(rouge_score))
+    
+    print("rouge_f1:%.2f" % (rouge_L_f1 / len(rouge_score)))
+    print("rouge_p:%.2f" % (rouge_L_p / len(rouge_score)))
+    print("rouge_r:%.2f" % (rouge_L_r / len(rouge_score)))
+
+
+def BeamSerch(device,src,model):
+    '''束搜索'''
+    pass
+
+
+# 将数据转换为成batch的Tensor，win平台有bug，多进程不能写在函数里
 with open(WORD_IDX_PATH,"rb") as f:
         w2i=pkl.load(f)
-train_iter=DataLoader(TextDataset(TRAIN_FALG,w2i),shuffle=True,batch_size=128,num_workers=8)
-val_iter=DataLoader(TextDataset(VAL_FALG,w2i),shuffle=False,batch_size=64,num_workers=4)
-test_iter=DataLoader(TextDataset(TEST_FALG,w2i),shuffle=False,batch_size=64,num_workers=4)
+train_iter=DataLoader(TextDataset(TRAIN_FALG,w2i),shuffle=True,batch_size=BATCH_SZIE,num_workers=8)
+val_iter=DataLoader(TextDataset(VAL_FALG,w2i),shuffle=False,batch_size=BATCH_SZIE,num_workers=4)
+test_iter=DataLoader(TextDataset(TEST_FALG,w2i),shuffle=False,batch_size=1)
+
+def Train(net:Module,lr):
+    """训练序列到序列模型。"""
+    from tqdm import tqdm
+
+    def xavier_init_weights(m):
+        if type(m) == nn.Linear:
+            nn.init.xavier_uniform_(m.weight)
+        if type(m) == nn.GRU:
+            for param in m._flat_weights_names:
+                if "weight" in param:
+                    nn.init.xavier_uniform_(m._parameters[param])
+
+    net.apply(xavier_init_weights)
+    net.to(DEVICE)
+    optimizer = optim.Adam(net.parameters(), lr=lr)
+    loss = models.MaskedSoftmaxCELoss()
+    
+    
+    for epoch in range(EPOCHS):
+        train_loss=[]
+        val_loss=[]
+
+        net.train()
+        for batch in tqdm(train_iter):
+            (enc_X, enc_x_l), (dec_x, dec_x_l), (y,y_l) = [(x[0].to(DEVICE),x[1].to(DEVICE)) for x in batch]
+            
+            
+            pred, _ = net(enc_X, dec_x, enc_x_l)
+            l = loss(pred, y, y_l).sum()
+            l.backward()
+            
+            optimizer.step()       
+            optimizer.zero_grad()
+
+            with torch.no_grad():
+                train_loss.append(l.item())
+            
+        # 释放显存
+        torch.cuda.empty_cache()
+
+        net.eval()
+        with torch.no_grad():
+            for batch in tqdm(val_iter):
+                (enc_X, enc_x_l), (dec_x, dec_x_l), (y,y_l) = [(x[0].to(DEVICE),x[1].to(DEVICE)) for x in batch]
+                pred, _ = net(enc_X, dec_x, enc_x_l)
+                l = loss(pred, y, y_l).sum()
+                val_loss.append(l.item())
+        # 保存模型参数，秒级时间戳保证唯一性
+        torch.save(net.state_dict(),PARAM_DIR+str(int(time.time()))+"_GRU.param")
+        print(f"{epoch+1}: train_loss:{sum(train_loss)};val_loss:{sum(val_loss)}")
+
+
+def TestOneSeq(source:str,net:Module,param_path,max_steps=100,
+                save_attention_weights=False,label=None):
+    '''测试单个文本，生成摘要'''
+    with open(WORD_IDX_PATH,"rb") as f:
+        w2i=pkl.load(f)
+    with open(IDX_WORD_PATH,"rb") as f:
+        i2w=pkl.load(f)
+    
+    words_list=source.strip().lower().split(" ")
+    words_list=[i for i in words_list if (i!='' and i!=' ')]
+    # print(words_list)
+    id_list=[w2i[word] if word in w2i.keys() else UNK_NUM for word in words_list]
+    id_list.append(EOS_NUM)
+    print(id_list)
+    enc_X,enc_X_l=PaddingSeq(id_list,SOURCE_THRESHOLD)
+    enc_X=torch.unsqueeze(torch.tensor(enc_X, dtype=torch.long, device=DEVICE),dim=0)
+    enc_X_l=torch.tensor(enc_X_l, dtype=torch.long, device=DEVICE)
+
+    enc_outputs = net.encoder(enc_X, enc_X_l)
+    dec_state = net.decoder.init_state(enc_outputs, enc_X_l)
+    
+    dec_X = torch.unsqueeze(
+        torch.tensor([BOS_NUM], dtype=torch.long, device=DEVICE),
+        dim=0)
+
+    net.load_state_dict(torch.load(param_path))
+    net.eval()
+    output_seq, attention_weight_seq = [], []
+    for _ in range(max_steps):
+        Y, dec_state = net.decoder(dec_X, dec_state)
+        dec_X = Y.argmax(dim=2)
+        pred = dec_X.squeeze(dim=0).type(torch.int32).item()
+        if save_attention_weights:
+            attention_weight_seq.append(net.decoder.attention_weights)
+        if pred == EOS_NUM:
+            break
+        output_seq.append(pred)
+    pred_seq=' '.join([i2w[i] for i in output_seq])
+    score=None
+    if(label!=None):
+        score=GetRouge(pred_seq,label)
+    return pred_seq, score, attention_weight_seq
+
+    
+
+def GenSubmisson(net,param):
+    '''跑一遍测试集，生成submission文件'''
+    import csv
+    
+    res=[["1","asd"],["2","dfg"],["3","vvv"]]
+    with open(os.path.join(DATA_DIR, 'submission.csv'),'w+',newline="") as csvfile:
+        writer=csv.writer(csvfile,delimiter="\t")   
+        writer.writerows(res)
 
 
 if __name__=='__main__':
@@ -275,12 +405,12 @@ if __name__=='__main__':
     # BuildVocabCounter()
     # MakeVocab(VOCAB_SIZE)
     
-    with open(WORD_IDX_PATH,"rb") as f:
-        a=pkl.load(f)
+    # with open(WORD_IDX_PATH,"rb") as f:
+    #     a=pkl.load(f)
     # with open(IDX_WORD_PATH,"rb") as f:
     #     b=pkl.load(f)
     
-    print(a)
+    # print(a)
     # print(b)
     # print(ReadJson2List(os.path.join(DATA_DIR,"new_test/"),0,True))
     # with open(WORD_IDX_PATH,"rb") as f:
@@ -291,4 +421,15 @@ if __name__=='__main__':
     
     # print(x)
     # train_iter=DataLoader(TextDataset(VAL_FALG,w2i),shuffle=True,batch_size=128,num_workers=4)
+    # Train(models.GetTextSum_GRU(),0.01)
+    # GenSubmisson()
+    
+    print(
+        TestOneSeq(
+        "one-third of phone users would definitely upgrade to a facebook phone - and 73 % think the phone is a ` good idea ' . news of the phone emerged this week , with sources claiming that facebook had hired ex-apple engineers to work on an ` official ' facebook phone . facebook has made several ventures into the mobile market before in partnership with manufacturers such as htc and inq - but a new phone made by ex-apple engineers is rumoured to be in production . the previous ` facebook phone ' - inq 's cloud touch - puts all of your newsfeeds , pictures and other information on a well thought-out homescreen centred around facebook . it 's not the first facebook phone to hit . the market -- the social network giant has previously partnered with inq . and htc to produce facebook-oriented handsets , including phones with a . built-in ` like ' button . details of the proposed phone are scant , but facebook is already making moves into the mobile space with a series of high-profile app acquisitions . after its $ 1 billion purchase of instagram , the social network bought location-based social app glancee and photo-sharing app lightbox . facebook 's smartphone apps have also seen constant and large-scale redesigns , with adverts more prominent with the news feed . the handset is rumoured to be set for a 2013 release . it could be a major hit -- a flash poll of 968 people conducted by myvouchercodes found that 32 % of phone users would upgrade as soon as it became available . the key to its success could be porting apps to mobile -- something facebook is already doing . separate camera and chat apps already separate off some site functions , and third-party apps will shortly be available via a facebook app store . of those polled , 57 % hoped that it would be cheaper than an iphone -- presumably supported by facebook 's advertising . those polled were then asked why they would choose to purchase a facebook phone , if and when one became available , and were asked to select all reasons that applied to them from a list of possible answers . would you ` upgrade ' to a facebook phone ? would you ` upgrade ' to a facebook phone ? now share your opinion . the top five reasons were as follows : . 44 % of people liked the idea of having their mobile phone synced with their facebook account , whilst 41 % said they wanted to be able to use facebook apps on their smartphone . mark pearson , chairman of myvouchercodes.co.uk , said , ` it will be quite exciting to see the first facebook phone when it 's released next year . '",
+        models.GetTextSum_GRU().to(DEVICE),
+        os.path.join(PARAM_DIR,"1638704899_GRU.param"),
+        label=" poll of 968 phone users in uk .   32 % said they would definitely upgrade to a facebook phone .   users hope it might be cheaper than iphone . "
+    )
+    )
     

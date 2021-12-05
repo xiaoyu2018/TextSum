@@ -1,6 +1,9 @@
 
 #------------------ 路径设置 ------------------#
 # 数据集目录
+import torch
+
+
 DATA_DIR="D:/2021UCAS/高级人工智能/大作业/TextSum/dataset/"
 # 模型参数目录
 PARAM_DIR="D:/2021UCAS/高级人工智能/大作业/TextSum/params/"
@@ -48,4 +51,6 @@ PATTERNS_ANY=[
     ]
 
 #------------------ 其他设置 ------------------#
-DEVICE="cuda:0"
+DEVICE=torch.device("cuda:0")
+EPOCHS=25
+BATCH_SZIE=16
