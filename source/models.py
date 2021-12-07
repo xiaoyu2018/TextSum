@@ -1,7 +1,6 @@
 from torch import nn
 import torch
 from torch.tensor import Tensor
-import math
 from settings import *
 import utils
 
@@ -116,7 +115,19 @@ def GetTextSum_GRU():
     )
 ##################################
 
+################################## Bert
 
+
+##################################
+
+
+
+def GetModel(name:str):
+    name=name.lower()
+    if(name=="gru"):
+        return GetTextSum_GRU().to(DEVICE)
+    else:
+        raise Exception("该模型未实现！")
 
 if __name__=='__main__':
     encoder=GruEncoder(VOCAB_SIZE+4,512,256,2)

@@ -39,7 +39,5 @@
 
 # utils.GetRouge(a,b)
 
-from datetime import datetime
-
-
-print(datetime.now())
+net="23"
+print(net=="23")
