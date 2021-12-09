@@ -19,7 +19,6 @@ def Preprocess(train_path=DATA_DIR+"train_dataset.csv",test_path=DATA_DIR+"test_
     '''
     清理数据、划分验证集后重新保存至新文件
     '''
-    import random
     
     # 数据清洗
     def _cleanData(data):
@@ -46,12 +45,13 @@ def Preprocess(train_path=DATA_DIR+"train_dataset.csv",test_path=DATA_DIR+"test_
     # 将处理后的数据保存为json文件
     def _save2Json(data,mode):
         j=0
-        if mode==3:
+        
+        if mode==2:
             for i in range(len(test_data)): 
                 source=test_data[i].split('\t')[1].strip('\n')
-                
                 if source!='': 
-                    dict_data={"source":[source],"summary":['no summary']}#测试集没有参考摘要
+                    dict_data={"text":source,"summary":'no summary'}#测试集没有参考摘要
+                    
                     with open(new_test_path+str(j)+'.json','w+',encoding='utf-8') as f:
                         f.write(json.dumps(dict_data,ensure_ascii=False))
                     j+=1
@@ -63,9 +63,9 @@ def Preprocess(train_path=DATA_DIR+"train_dataset.csv",test_path=DATA_DIR+"test_
                     traget_seg=data[i].split("\t")[2].strip('\n')
                     
                     if source_seg and traget_seg !='':
-                        dict_data={"source":[source_seg],"summary":[traget_seg]}
+                        dict_data={"text":source_seg,"summary":traget_seg}
                         path=new_train_path
-                        if mode==2:
+                        if mode==1:
                             path= new_val_path  
                         with open(path+str(j)+'.json','w+',encoding='utf-8') as f:
                             f.write(json.dumps(dict_data,ensure_ascii=False)) 
@@ -87,10 +87,9 @@ def Preprocess(train_path=DATA_DIR+"train_dataset.csv",test_path=DATA_DIR+"test_
     # with open("./2.csv",'w',encoding='utf-8') as f:
     #     f.writelines(test_data)
     # random.shuffle(train_data_all)
-
+    
     # 设置新文件路径
     new_train_path=os.path.join(DATA_DIR,"new_train/")
-    print(new_train_path)
     new_val_path=os.path.join(DATA_DIR,"new_val/")
     new_test_path=os.path.join(DATA_DIR,"new_test/")
 
@@ -109,6 +108,7 @@ def Preprocess(train_path=DATA_DIR+"train_dataset.csv",test_path=DATA_DIR+"test_
     _save2Json(train_data,TRAIN_FALG)
     _save2Json(val_data,VAL_FALG)
     _save2Json(test_data,TEST_FALG)
+    
 
 def CountFiles(path):
     '''
@@ -135,7 +135,7 @@ def BuildVocabCounter(data_dir=DATA_DIR):
             summary=''.join(js_data['summary']).strip()
             summary_words.extend(summary.strip().split(' '))
             
-            source=''.join(js_data['source']).strip()
+            source=''.join(js_data['text']).strip()
             source_words.extend(source.strip().split(' '))
 
         return source_words+summary_words
@@ -180,7 +180,7 @@ def GetNumOfLongestSeq():
         max_len=0
         for i in range(length):
             js_data=json.load(open(os.path.join(path,f"{i}.json"),encoding="utf-8"))
-            l_data=js_data["summary"][0].split(" ")
+            l_data=js_data["summary"].split(" ")
             l=len(l_data)
             if(max_len<len(l_data)):
                 max_len=l
@@ -257,8 +257,8 @@ def ReadJson2List(dir,i,label=False):
     
     js_data=json.load(open(os.path.join(dir,f"{i}.json"),encoding="utf-8"))
     if label:
-        return js_data["summary"][0].split(" ")
-    return js_data["source"][0].split(" ")
+        return js_data["summary"].split(" ")
+    return js_data["text"].split(" ")
 
 
 def GetRouge(pred,label):
@@ -278,11 +278,6 @@ def GetRouge(pred,label):
     print("rouge_f1:%.2f" % (rouge_L_f1 / len(rouge_score)))
     print("rouge_p:%.2f" % (rouge_L_p / len(rouge_score)))
     print("rouge_r:%.2f" % (rouge_L_r / len(rouge_score)))
-
-
-def BeamSerch(device,src,net):
-    '''束搜索'''
-    pass
 
 
 # 将数据转换为成batch的Tensor，win平台有bug，多进程不能写在函数里
@@ -309,7 +304,8 @@ def Train(net:Module,lr=0.01):
     optimizer = optim.Adam(net.parameters(), lr=lr)
     loss = models.MaskedSoftmaxCELoss()
     
-    
+    # 验证集loss降到10000以下时开始保存每轮更低的参数
+    min_loss=10000
     for epoch in range(EPOCHS):
         train_loss=[]
         val_loss=[]
@@ -339,13 +335,16 @@ def Train(net:Module,lr=0.01):
                 pred, _ = net(enc_X, dec_x, enc_x_l)
                 l = loss(pred, y, y_l).sum()
                 val_loss.append(l.item())
+
         # 保存模型参数，秒级时间戳保证唯一性
-        torch.save(net.state_dict(),PARAM_DIR+str(int(time.time()))+"_GRU.param")
+        if(sum(val_loss)<min_loss):
+            min_loss=sum(val_loss)
+            torch.save(net.state_dict(),PARAM_DIR+str(int(time.time()))+"_GRU.param")
+            print(f"saved net with val_loss:{min_loss}")
         print(f"{epoch+1}: train_loss:{sum(train_loss)};val_loss:{sum(val_loss)}")
 
 
-def TestOneSeq(source:str,net:Module,param_path,max_steps=100,
-                save_attention_weights=False,label=None):
+def TestOneSeq(source:str,net:Module,param_path,max_steps=100,label=None):
     '''测试单个文本，生成摘要'''
     with open(WORD_IDX_PATH,"rb") as f:
         w2i=pkl.load(f)
@@ -376,8 +375,7 @@ def TestOneSeq(source:str,net:Module,param_path,max_steps=100,
         Y, dec_state = net.decoder(dec_X, dec_state)
         dec_X = Y.argmax(dim=2)
         pred = dec_X.squeeze(dim=0).type(torch.int32).item()
-        if save_attention_weights:
-            attention_weight_seq.append(net.decoder.attention_weights)
+        
         if pred == EOS_NUM:
             break
         output_seq.append(pred)
@@ -385,11 +383,11 @@ def TestOneSeq(source:str,net:Module,param_path,max_steps=100,
     score=None
     if(label!=None):
         score=GetRouge(pred_seq,label)
-    return pred_seq, score, attention_weight_seq
+    return pred_seq, score
 
     
 
-def GenSubmisson(net,param_path,max_steps=100,save_attention_weights=False):
+def GenSubmisson(net,param_path,max_steps=100):
     '''依据测试集，生成submission文件'''
     import csv
     with open(IDX_WORD_PATH,"rb") as f:
@@ -413,8 +411,6 @@ def GenSubmisson(net,param_path,max_steps=100,save_attention_weights=False):
             Y, dec_state = net.decoder(dec_X, dec_state)
             dec_X = Y.argmax(dim=2)
             pred = dec_X.squeeze(dim=0).type(torch.int32).item()
-            if save_attention_weights:
-                attention_weight_seq.append(net.decoder.attention_weights)
             if pred == EOS_NUM:
                 break
             output_seq.append(pred)
@@ -422,7 +418,7 @@ def GenSubmisson(net,param_path,max_steps=100,save_attention_weights=False):
         res.append([str(count),pred_seq])
         count+=1
     
-    with open(os.path.join(DATA_DIR, 'submission.csv'),'w+',newline="") as csvfile:
+    with open(os.path.join(DATA_DIR, 'submission.csv'),'w+',newline="",encoding='utf-8') as csvfile:
         writer=csv.writer(csvfile,delimiter="\t")   
         writer.writerows(res)
 

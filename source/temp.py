@@ -39,5 +39,13 @@
 
 # utils.GetRouge(a,b)
 
-net="23"
-print(net=="23")
+# import torch
+# from transformers import T5Tokenizer, T5Model
+
+# tokenizer=T5Tokenizer.from_pretrained('t5-small')
+# text = ['Hello world!', 'Hello python!']
+# inputs = tokenizer(text, return_tensors='pt', padding=True)
+# print(inputs)
+
+input_text="asd asd       asd"
+print("asd" in input_text)

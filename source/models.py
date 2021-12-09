@@ -66,7 +66,7 @@ class EncoderDecoder(nn.Module):
         return self.decoder(dec_X,dec_state)
 
 
-################################## RNN
+################################## RNN（效果太差了）
 class GruEncoder(Encoder):
     def __init__(self,in_dim,emb_dim,hidden_size,num_layers,dropout=0,**kwargs):
         super(GruEncoder,self).__init__(**kwargs)
@@ -115,17 +115,13 @@ def GetTextSum_GRU():
     )
 ##################################
 
-################################## Bert
-
-
-##################################
-
 
 
 def GetModel(name:str):
     name=name.lower()
     if(name=="gru"):
         return GetTextSum_GRU().to(DEVICE)
+    
     else:
         raise Exception("该模型未实现！")
 
