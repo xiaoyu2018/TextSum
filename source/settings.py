@@ -52,14 +52,14 @@ PATTERNS_ANY=[
 
 #------------------ 其他设置 ------------------#
 DEVICE=torch.device("cuda:0")
-EPOCHS=50
+EPOCHS=10
 BATCH_SZIE=28
 
 
 #------------------ 预训练模型设置 ------------------#
 
 # 搜索束个数
-NUM_BEAMS=1
+NUM_BEAMS=4
 # 序列长度惩罚
 LEN_PENALTY=2.0
 # 预测序列最大长度

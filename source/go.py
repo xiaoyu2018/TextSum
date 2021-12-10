@@ -32,7 +32,7 @@ def main():
         print("--------------词频表建立完毕--------------")
         exit(0)
     if(args.make):
-        print("-------------开始建立字典--------------")
+        print("--------------开始建立字典--------------")
         try:
             utils.MakeVocab()
         except Exception as e:
@@ -45,16 +45,18 @@ def main():
             net=GetModel(args.train)
             print("--------------开始训练模型--------------")
             utils.Train(net)
-            print("-------------模型训练完毕--------------")
+            print("--------------模型训练完毕--------------")
         except Exception as e:
             print(e)
         exit(0)
+    
     if(args.fine_tune):
+        # 最小的模型也train不动。。。
         try:
             net,tkz=pm.GetPModel(args.fine_tune)
             print("--------------开始微调--------------")
             pm.FineTune(net,tkz)
-            print("-------------微调完毕--------------")
+            print("--------------微调完毕--------------")
         except Exception as e:
             print(e)
         exit(0)

@@ -44,32 +44,36 @@ def Preprocess(train_path=DATA_DIR+"train_dataset.csv",test_path=DATA_DIR+"test_
     
     # 将处理后的数据保存为json文件
     def _save2Json(data,mode):
-        j=0
+        
         
         if mode==2:
-            for i in range(len(test_data)): 
-                source=test_data[i].split('\t')[1].strip('\n')
+            
+            for i in range(len(data)): 
+                source=data[i].split('\t')[1].strip('\n')
                 if source!='': 
                     dict_data={"text":source,"summary":'no summary'}#测试集没有参考摘要
                     
-                    with open(new_test_path+str(j)+'.json','w+',encoding='utf-8') as f:
+                    with open(new_test_path+str(i)+'.json','w+',encoding='utf-8') as f:
                         f.write(json.dumps(dict_data,ensure_ascii=False))
-                    j+=1
+                    
         
         else:
+            
             for i in range(len(data)):
+                
                 if len(data[i].split('\t'))==3:
                     source_seg=data[i].split("\t")[1]
                     traget_seg=data[i].split("\t")[2].strip('\n')
+                    
                     
                     if source_seg and traget_seg !='':
                         dict_data={"text":source_seg,"summary":traget_seg}
                         path=new_train_path
                         if mode==1:
                             path= new_val_path  
-                        with open(path+str(j)+'.json','w+',encoding='utf-8') as f:
+                        with open(path+str(i)+'.json','w+',encoding='utf-8') as f:
                             f.write(json.dumps(dict_data,ensure_ascii=False)) 
-                        j+=1
+                        
 
     
     with open(train_path,'r',encoding='utf-8') as f:
@@ -424,7 +428,7 @@ def GenSubmisson(net,param_path,max_steps=100):
 
 
 if __name__=='__main__':
-    # Preprocess()
+    Preprocess()
     # BuildVocabCounter()
     # MakeVocab(VOCAB_SIZE)
     
@@ -456,8 +460,8 @@ if __name__=='__main__':
     # )
     # )
 
-    GenSubmisson(
-        models.GetTextSum_GRU().to(DEVICE),
-        os.path.join(PARAM_DIR,"1638704899_GRU.param")
-        )
+    # GenSubmisson(
+    #     models.GetTextSum_GRU().to(DEVICE),
+    #     os.path.join(PARAM_DIR,"1638704899_GRU.param")
+    #     )
     

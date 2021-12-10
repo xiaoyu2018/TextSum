@@ -47,5 +47,49 @@
 # inputs = tokenizer(text, return_tensors='pt', padding=True)
 # print(inputs)
 
-input_text="asd asd       asd"
-print("asd" in input_text)
+from transformers import T5Tokenizer, T5ForConditionalGeneration,AdamW
+import torch
+from settings import *
+
+tokenizer = T5Tokenizer.from_pretrained(PARAM_DIR+"t5-small")
+model = T5ForConditionalGeneration.from_pretrained(PARAM_DIR+"t5-small")
+
+# the following 2 hyperparameters are task-specific
+max_source_length = 512
+max_target_length = 128
+
+# Suppose we have the following 2 training examples:
+input_sequence_1 = "Welcome to NYC"
+output_sequence_1 = "Bienvenue à NYC"
+
+input_sequence_2 = "HuggingFace is a company as e dd"
+output_sequence_2 = "HuggingFace est une entreprise"
+
+# encode the inputs
+task_prefix = "translate English to French: "
+input_sequences = [input_sequence_1, input_sequence_2]
+encoding = tokenizer([task_prefix + sequence for sequence in input_sequences], 
+                     padding='longest', 
+                     max_length=max_source_length, 
+                     truncation=True, 
+                     return_tensors="pt")
+input_ids, attention_mask = encoding.input_ids, encoding.attention_mask
+
+# encode the targets
+target_encoding = tokenizer([output_sequence_1, output_sequence_2], 
+                            padding='longest', 
+                            max_length=max_target_length, 
+                            truncation=True)
+labels = target_encoding.input_ids
+
+# replace padding token id's of the labels by -100
+labels = [
+           [(label if label != tokenizer.pad_token_id else -100) for label in labels_example] for labels_example in labels
+] 
+labels = torch.tensor(labels)
+loss = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels).loss
+loss.backward()
+opt=AdamW(model.parameters())
+opt.step()
+
+print(loss)
