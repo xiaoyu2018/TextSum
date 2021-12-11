@@ -1,24 +1,30 @@
-# 使用预训练模型 t5-small
-from torch.nn.modules.module import Module
+# 使用预训练模型
+from transformers import PegasusTokenizer,PegasusForConditionalGeneration
 from transformers import T5Tokenizer, T5ForConditionalGeneration,AdamW
+from transformers import BartTokenizer,BartForConditionalGeneration
 from settings import *
 from utils import GetRouge,CountFiles
 import os
 from torch.utils.data.dataset import TensorDataset
 from torch.utils.data.dataloader import DataLoader
+from torch.nn.modules.module import Module
+
+current_model=""
+
+
 
 def ToTensor(texts,summaries,tokenizer):
     task_prefix="summarize: "
     encoding = tokenizer([task_prefix + sequence for sequence in texts], 
                     padding='longest', 
-                    max_length=MAX_SOURCE_LEN, 
+                    max_length=SOURCE_THRESHOLD, 
                     truncation=True, 
                     return_tensors="pt")
     input_ids, attention_mask = encoding.input_ids, encoding.attention_mask
 
     target_encoding = tokenizer(summaries, 
                         padding='longest', 
-                        max_length=MAX_SUMMARY_LEN, 
+                        max_length=SUMMARY_THRESHOLD, 
                         truncation=True)
     labels = target_encoding.input_ids
     labels = [(i if i != tokenizer.pad_token_id else -100) for i in labels]
@@ -95,18 +101,24 @@ def FineTune(net:Module,tokenizer):
 
 def TestOneSeq(net,tokenizer,text, target=None):
     '''生成单个样本的摘要'''
+    torch.cuda.empty_cache()
     net.eval()
     
     text = str(text).replace('\n', '')
-    input_tokenized = tokenizer.encode(text, return_tensors="pt").to(DEVICE)
-
-    summary_task = torch.tensor([[21603, 10]]).to(DEVICE)
-    input_tokenized = torch.cat([summary_task, input_tokenized], dim=-1).to(DEVICE)
+    input_tokenized = tokenizer.encode(
+        text,
+        truncation=True, 
+        return_tensors="pt",
+        max_length=SOURCE_THRESHOLD
+        ).to(DEVICE)
+    
+    if(current_model=="t5"):
+        summary_task = torch.tensor([[21603, 10]]).to(DEVICE)
+        input_tokenized = torch.cat([summary_task, input_tokenized], dim=-1).to(DEVICE)
     
     summary_ids = net.generate(input_tokenized,
                                     num_beams=NUM_BEAMS,
                                     no_repeat_ngram_size=3,
-                                    length_penalty=LEN_PENALTY,
                                     min_length=MIN_LEN,
                                     max_length=MAX_LEN,
                                     early_stopping=True)
@@ -123,20 +135,31 @@ def GetTextSum_T5(name):
     print(f"{name} 加载完毕")
     return net.to(DEVICE),tokenizer
 
-# # bart
-# def GetTextSum_BART():
-#     tokenizer=BartTokenizer.from_pretrained(PARAM_DIR+"bart-large-cnn", output_past=True)
-#     net=BartForConditionalGeneration.from_pretrained(PARAM_DIR+"bart-large-cnn", output_past=True)
-#     print("bart 加载完毕")
-#     return (net.to(DEVICE),tokenizer)
+# bart
+def GetTextSum_BART():
+    tokenizer=BartTokenizer.from_pretrained(PARAM_DIR+"bart", output_past=True)
+    net=BartForConditionalGeneration.from_pretrained(PARAM_DIR+"bart", output_past=True)
+    print("bart 加载完毕")
+    return (net.to(DEVICE),tokenizer)
+
+def GetTextSum_Pegasus():
+    tokenizer=PegasusTokenizer.from_pretrained(PARAM_DIR+"pegasus")
+    net=PegasusForConditionalGeneration.from_pretrained(PARAM_DIR+"pegasus")
+    print("pegasus 加载完毕")
+    return (net.to(DEVICE),tokenizer)
 
 def GetPModel(name:str):
+    global current_model
     name=name.lower()
     print("正在加载模型")
     if("t5" in name):
+        current_model="t5"
         return GetTextSum_T5(name)
-    # elif(name=="bart"):
-    #     return GetTextSum_BART()
+    elif(name=="bart"):
+        return GetTextSum_BART()
+    elif(name=="pegasus"):
+        current_model="pegasus"
+        return GetTextSum_Pegasus()
     else:
         raise Exception("该模型未实现！")
     
@@ -161,13 +184,14 @@ def GenSub(net,tokenizer,param_path=None):
         text=ReadJson(i,DATA_DIR+"new_test",True)
         summary=TestOneSeq(net,tokenizer,text)[0]
         res.append([str(i),summary])
+    
     with open(os.path.join(DATA_DIR, 'submission.csv'),'w+',newline="",encoding='utf-8') as csvfile:
         writer=csv.writer(csvfile,delimiter="\t")   
         writer.writerows(res)
 
 
 if __name__=='__main__':
-    net,tokenizer=GetPModel("t5-small")
+    net,tokenizer=GetPModel("t5-large")
     # res=tokenizer(
     #     ["hello world","hi"], 
     #     return_tensors="pt",
@@ -183,8 +207,9 @@ if __name__=='__main__':
     # "poll of 968 phone users in uk .   32 % said they would definitely upgrade to a facebook phone .   users hope it might be cheaper than iphone . "
     # ))
     GenSub(net,tokenizer)
-
+    
     # opt=AdamW(net.parameters())
     # opt.step()
 
     # FineTune(net,tokenizer)
+    
