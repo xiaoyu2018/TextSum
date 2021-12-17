@@ -416,7 +416,7 @@ TextSum<br/>
 
 ## 3 最终成绩
 本项目最终成绩为0.32107609
-![](.\score.png)  
+![](score.png)  
 参数设置如下：  
 + 模型：bart-large-cnn
 + 搜索束个数：2
