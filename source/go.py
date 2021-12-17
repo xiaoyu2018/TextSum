@@ -51,7 +51,6 @@ def main():
         exit(0)
     
     if(args.fine_tune):
-        # 最小的模型也train不动。。。
         try:
             net,tkz=pm.GetPModel(args.fine_tune)
             print("--------------开始微调--------------")

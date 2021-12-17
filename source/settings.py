@@ -5,7 +5,7 @@ import torch
 
 
 DATA_DIR="D:/2021UCAS/AdvancedAI/TextSum/dataset/"
-# 模型参数目录
+# 模型参数/预训练模型目录
 PARAM_DIR="D:/2021UCAS/AdvancedAI/TextSum/params/"
 # 词频表地址
 VOCAB_PATH="D:/2021UCAS/AdvancedAI/TextSum/dataset/vocab_cnt.pkl"

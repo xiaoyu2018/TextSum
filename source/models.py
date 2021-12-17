@@ -126,18 +126,23 @@ def GetModel(name:str):
         raise Exception("该模型未实现！")
 
 if __name__=='__main__':
-    encoder=GruEncoder(VOCAB_SIZE+4,512,256,2)
-    decoder=GruDecoder(VOCAB_SIZE+4,512,256,2)
-    for enc_X,dec_X,y in utils.train_iter:
-        print(enc_X[0].shape)
-        enc_out=encoder(enc_X[0])
+    # encoder=GruEncoder(VOCAB_SIZE+4,512,256,2)
+    # decoder=GruDecoder(VOCAB_SIZE+4,512,256,2)
+    # for enc_X,dec_X,y in utils.train_iter:
+    #     print(enc_X[0].shape)
+    #     enc_out=encoder(enc_X[0])
         
-        state=decoder.init_state(enc_out)
-        output,state=decoder(dec_X[0],state)
-        print(output.shape)
-        loss_f=MaskedSoftmaxCELoss()
-        l=loss_f(output,y[0],y[1])
-        print(l)
+    #     state=decoder.init_state(enc_out)
+    #     output,state=decoder(dec_X[0],state)
+    #     print(output.shape)
+    #     loss_f=MaskedSoftmaxCELoss()
+    #     l=loss_f(output,y[0],y[1])
+    #     print(l)
         
-        break
+    #     break
         
+    net=GetTextSum_GRU()
+    
+
+    with open("1.txt","w+") as f:
+        f.write(str(net))
